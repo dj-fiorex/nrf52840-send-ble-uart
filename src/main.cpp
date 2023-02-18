@@ -9,13 +9,18 @@
 #include <utility/imumaths.h>
 
 /* Set the delay between fresh samples */
-#define BNO055_SAMPLERATE_DELAY_MS (10000)
+#define BNO055_SAMPLERATE_DELAY_MS (10)
 
 // Check I2C device address and correct line below (by default address is 0x29 or 0x28)
 //                                   id, address
 Adafruit_BNO055 bno = Adafruit_BNO055(-1, 0x28, &Wire);
 
+static imu::Vector<3> accelerometer;
+static imu::Vector<3> magnetometer;
+static imu::Vector<3> gyroscope;
 static imu::Vector<3> euler;
+static imu::Vector<3> linearaccel;
+static imu::Vector<3> gravity;
 
 #define CFG_DEBUG 1
 MyBleDevice myBleDevice;
@@ -28,9 +33,28 @@ void connect_callback(uint16_t conn_handle)
 
   char central_name[32] = {0};
   connection->getPeerName(central_name, sizeof(central_name));
-
+  auto mtu = connection->getMtu();
+  Serial.println(mtu);
   Serial.print("Connected to ");
   Serial.println(central_name);
+
+  // request PHY changed to 2MB
+  Serial.println("Request to change PHY");
+  connection->requestPHY();
+
+  // request to update data length
+  Serial.println("Request to change Data Length");
+  connection->requestDataLengthUpdate();
+
+  // request mtu exchange
+  Serial.println("Request to change MTU");
+  connection->requestMtuExchange(247);
+
+  // request connection interval of 7.5 ms
+  // conn->requestConnectionParameter(6); // in unit of 1.25
+
+  // delay a bit for all the request to complete
+  delay(1000);
 }
 
 /**
@@ -99,8 +123,7 @@ void setup()
   Serial.println("Once connected, enter character(s) that you wish to send");
 }
 
-byte str[18];
-double doubleArray[4];
+float doubleArray[19];
 void readSensor()
 {
   // Read sensor data
@@ -112,69 +135,62 @@ void readSensor()
   // - VECTOR_EULER         - degrees
   // - VECTOR_LINEARACCEL   - m/s^2
   // - VECTOR_GRAVITY       - m/s^2
+  accelerometer = bno.getVector(Adafruit_BNO055::VECTOR_ACCELEROMETER);
+  magnetometer = bno.getVector(Adafruit_BNO055::VECTOR_MAGNETOMETER);
+  gyroscope = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
   euler = bno.getVector(Adafruit_BNO055::VECTOR_ACCELEROMETER);
+  linearaccel = bno.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
+  gravity = bno.getVector(Adafruit_BNO055::VECTOR_GRAVITY);
 
-  // Serial.println(sizeof(euler.x()));
+  doubleArray[0] = (float)accelerometer.x();
+  doubleArray[1] = (float)accelerometer.y();
+  doubleArray[2] = (float)accelerometer.z();
 
-  doubleArray[0] = euler.x();
+  doubleArray[3] = (float)magnetometer.x();
+  doubleArray[4] = (float)magnetometer.y();
+  doubleArray[5] = (float)magnetometer.z();
 
-  doubleArray[1] = euler.y();
-  doubleArray[2] = euler.z();
+  doubleArray[6] = (float)gyroscope.x();
+  doubleArray[7] = (float)gyroscope.y();
+  doubleArray[8] = (float)gyroscope.z();
+
+  doubleArray[9] = (float)euler.x();
+  doubleArray[10] = (float)euler.y();
+  doubleArray[11] = (float)euler.z();
+
+  doubleArray[12] = (float)linearaccel.x();
+  doubleArray[13] = (float)linearaccel.y();
+  doubleArray[14] = (float)linearaccel.z();
+
+  doubleArray[15] = (float)gravity.x();
+  doubleArray[16] = (float)gravity.y();
+  doubleArray[17] = (float)gravity.z();
 
   byte *doublePtr = (byte *)doubleArray;
-  Serial.println(sizeof(float));
-  Serial.println(sizeof(double));
 
   // Add a delimiter
-  doublePtr[24] = 0x3E;
+  doublePtr[72] = 0xAA;
+  doublePtr[73] = 0x3A;
 
-  myBleDevice.write(doublePtr, 25);
+  myBleDevice.write(doublePtr, 74);
+}
 
-  // Send doublePtr to BLE
+void loop()
+{
+  // Forward from BLEUART to HW Serial
+  while (myBleDevice.available())
+  {
+    uint8_t ch;
+    ch = (uint8_t)myBleDevice.read();
+    Serial.write(ch);
+  }
 
-  // for (byte i = 0; i < sizeof(doubleArray); i++)
-  //{
-  //   myBleDevice.write(doublePtr[i]);
-  // }
+  readSensor();
+  delay(BNO055_SAMPLERATE_DELAY_MS);
+}
 
-  // str[0] = euler.x();
-  // str[8] = 0x3E;
-  // str[9] = euler.y();
-  // str[17] = 0x3E;
-  // myBleDevice.write(str, sizeof(str));
-  // for (byte i = 0; i < sizeof(str); i++)
-  // {
-  //   myBleDevice.write(str, sizeof(str));
-  // }
-
-  // sprintf(str, "%f", euler.y());
-  // myBleDevice.write(str);
-  //  myBleDevice.write(euler.y());
-  //  myBleDevice.write(euler.z());
-
-  /* Display the floating point data */
-  Serial.print("X: ");
-  Serial.print(euler.x());
-  Serial.print(" Y: ");
-  Serial.print(euler.y());
-  Serial.print(" Z: ");
-  Serial.print(euler.z());
-  Serial.print("\t\t");
-
-  /*
-  // Quaternion data
-  imu::Quaternion quat = bno.getQuat();
-  Serial.print("qW: ");
-  Serial.print(quat.w(), 4);
-  Serial.print(" qX: ");
-  Serial.print(quat.x(), 4);
-  Serial.print(" qY: ");
-  Serial.print(quat.y(), 4);
-  Serial.print(" qZ: ");
-  Serial.print(quat.z(), 4);
-  Serial.print("\t\t");
-  */
-
+void displayCalibration()
+{
   /* Display calibration status for each sensor. */
   uint8_t system, gyro, accel, mag = 0;
   bno.getCalibration(&system, &gyro, &accel, &mag);
@@ -188,27 +204,17 @@ void readSensor()
   Serial.println(mag, DEC);
 }
 
-void loop()
+void displayQuaternion()
 {
-  // Forward data from HW Serial to BLEUART
-  while (Serial.available())
-  {
-    // Delay to wait for enough input, since we have a limited transmission buffer
-    delay(2);
-
-    uint8_t buf[64];
-    int count = Serial.readBytes(buf, sizeof(buf));
-    myBleDevice.write(buf, count);
-  }
-
-  // Forward from BLEUART to HW Serial
-  while (myBleDevice.available())
-  {
-    uint8_t ch;
-    ch = (uint8_t)myBleDevice.read();
-    Serial.write(ch);
-  }
-
-  readSensor();
-  delay(BNO055_SAMPLERATE_DELAY_MS);
+  // Quaternion data
+  imu::Quaternion quat = bno.getQuat();
+  Serial.print("qW: ");
+  Serial.print(quat.w(), 4);
+  Serial.print(" qX: ");
+  Serial.print(quat.x(), 4);
+  Serial.print(" qY: ");
+  Serial.print(quat.y(), 4);
+  Serial.print(" qZ: ");
+  Serial.print(quat.z(), 4);
+  Serial.print("\t\t");
 }
