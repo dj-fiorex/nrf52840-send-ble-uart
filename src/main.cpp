@@ -22,7 +22,7 @@ static imu::Vector<3> euler;
 static imu::Vector<3> linearaccel;
 static imu::Vector<3> gravity;
 
-#define CFG_DEBUG 1
+//#define DEBUG_ENV 1
 MyBleDevice myBleDevice;
 
 // callback invoked when central connects
@@ -34,20 +34,30 @@ void connect_callback(uint16_t conn_handle)
   char central_name[32] = {0};
   connection->getPeerName(central_name, sizeof(central_name));
   auto mtu = connection->getMtu();
+#if DEBUG_ENV
+
   Serial.println(mtu);
   Serial.print("Connected to ");
   Serial.println(central_name);
 
   // request PHY changed to 2MB
   Serial.println("Request to change PHY");
+#endif
+
   connection->requestPHY();
 
-  // request to update data length
+// request to update data length
+#if DEBUG_ENV
+
   Serial.println("Request to change Data Length");
+#endif
+
   connection->requestDataLengthUpdate();
 
-  // request mtu exchange
+// request mtu exchange
+#if DEBUG_ENV
   Serial.println("Request to change MTU");
+#endif
   connection->requestMtuExchange(247);
 
   // request connection interval of 7.5 ms
@@ -67,34 +77,50 @@ void disconnect_callback(uint16_t conn_handle, uint8_t reason)
   (void)conn_handle;
   (void)reason;
 
+#if DEBUG_ENV
   Serial.println();
   Serial.print("Disconnected, reason = 0x");
   Serial.println(reason, HEX);
+#endif
 }
+
+#define VBATPIN A6
 
 void setup()
 {
+#if DEBUG_ENV
   Serial.begin(115200);
 
-#if CFG_DEBUG
   // Blocking wait for connection when debug mode is enabled via IDE
   while (!Serial)
     yield();
   delay(5000);
-#endif
+
+  float measuredvbat = analogRead(VBATPIN);
+  measuredvbat *= 2;    // we divided by 2, so multiply back
+  measuredvbat *= 3.6;  // Multiply by 3.6V, our reference voltage
+  measuredvbat /= 1024; // convert to voltage
+  Serial.print("VBat: ");
+  Serial.println(measuredvbat);
 
   Serial.println("Bluefruit52 BLEUART Example");
   Serial.println("---------------------------\n");
+#endif
 
   /* Initialise the sensor */
   if (!bno.begin())
   {
+#if DEBUG_ENV
     /* There was a problem detecting the BNO055 ... check your connections */
     Serial.print("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
+#endif
+
     while (1)
       ;
   }
   delay(1000);
+
+#if DEBUG_ENV
 
   /* Display the current temperature */
   int8_t temp = bno.getTemp();
@@ -102,10 +128,13 @@ void setup()
   Serial.print(temp);
   Serial.println(" C");
   Serial.println("");
+#endif
 
   bno.setExtCrystalUse(true);
+#if DEBUG_ENV
 
   Serial.println("Calibration status values: 0=uncalibrated, 3=fully calibrated");
+#endif
 
   // Initialize the library
 
@@ -118,9 +147,11 @@ void setup()
 
   // Set up and start advertising
   myBleDevice.startAdv();
+#if DEBUG_ENV
 
   Serial.println("Please use Adafruit's Bluefruit LE app to connect in UART mode");
   Serial.println("Once connected, enter character(s) that you wish to send");
+#endif
 }
 
 float doubleArray[19];
@@ -182,7 +213,10 @@ void loop()
   {
     uint8_t ch;
     ch = (uint8_t)myBleDevice.read();
+#if DEBUG_ENV
+
     Serial.write(ch);
+#endif
   }
 
   readSensor();
