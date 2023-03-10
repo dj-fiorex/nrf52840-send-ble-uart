@@ -22,7 +22,7 @@ static imu::Vector<3> euler;
 static imu::Vector<3> linearaccel;
 static imu::Vector<3> gravity;
 
-//#define DEBUG_ENV 1
+// #define DEBUG_ENV 1
 MyBleDevice myBleDevice;
 
 // callback invoked when central connects
@@ -31,10 +31,11 @@ void connect_callback(uint16_t conn_handle)
   // Get the reference to current connection
   BLEConnection *connection = Bluefruit.Connection(conn_handle);
 
+#if DEBUG_ENV
+
   char central_name[32] = {0};
   connection->getPeerName(central_name, sizeof(central_name));
   auto mtu = connection->getMtu();
-#if DEBUG_ENV
 
   Serial.println(mtu);
   Serial.print("Connected to ");
@@ -84,7 +85,10 @@ void disconnect_callback(uint16_t conn_handle, uint8_t reason)
 #endif
 }
 
-#define VBATPIN A6
+// #define VBATPIN A6
+#define BAT_HIGH_CHARGE 13          // HIGH for 50mA, LOW for 100mA
+#define BAT_CHARGE_STATE 23         // LOW for charging, HIGH not charging
+#define VBAT_PER_LBS (0.003515625F) // 3.6 reference and 10 bit resolution
 
 void setup()
 {
@@ -96,17 +100,30 @@ void setup()
     yield();
   delay(5000);
 
-  float measuredvbat = analogRead(VBATPIN);
-  measuredvbat *= 2;    // we divided by 2, so multiply back
-  measuredvbat *= 3.6;  // Multiply by 3.6V, our reference voltage
-  measuredvbat /= 1024; // convert to voltage
-  Serial.print("VBat: ");
-  Serial.println(measuredvbat);
+  // float measuredvbat = analogRead(VBATPIN);
+  // measuredvbat *= 2;    // we divided by 2, so multiply back
+  ////measuredvbat *= 3.6;  // Multiply by 3.6V, our reference voltage
+  // measuredvbat /= 1024; // convert to voltage
+  // Serial.print("VBat: ");
+  // Serial.println(measuredvbat);
 
   Serial.println("Bluefruit52 BLEUART Example");
   Serial.println("---------------------------\n");
+
+  pinMode(VBAT_ENABLE, OUTPUT);
+  delay(1000);
+  Serial.println("Bluefruit52 BLEUART Example");
+  pinMode(BAT_CHARGE_STATE, INPUT);
+  delay(1000);
+  Serial.println("Bluefruit52 BLEUART Example");
+  digitalWrite(BAT_HIGH_CHARGE, HIGH); // charge with 100mA
+  delay(1000);
+  Serial.println("Bluefruit52 BLEUART Example");
+  digitalWrite(VBAT_ENABLE, LOW);
+  Serial.println("Bluefruit52 BLEUART Example");
 #endif
 
+  delay(5000);
   /* Initialise the sensor */
   if (!bno.begin())
   {
@@ -173,6 +190,15 @@ void readSensor()
   linearaccel = bno.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
   gravity = bno.getVector(Adafruit_BNO055::VECTOR_GRAVITY);
 
+#if DEBUG_ENV
+  // Serial.print(accelerometer.x());
+  uint32_t adcCount = analogRead(PIN_VBAT);
+  float adcVoltage = adcCount * VBAT_PER_LBS;
+  float vBat = adcVoltage * (1510.0 / 508.0);
+  Serial.println(vBat);
+  delay(1000);
+#endif
+
   doubleArray[0] = (float)accelerometer.x();
   doubleArray[1] = (float)accelerometer.y();
   doubleArray[2] = (float)accelerometer.z();
@@ -208,16 +234,15 @@ void readSensor()
 
 void loop()
 {
+#if DEBUG_ENV
   // Forward from BLEUART to HW Serial
   while (myBleDevice.available())
   {
     uint8_t ch;
     ch = (uint8_t)myBleDevice.read();
-#if DEBUG_ENV
-
     Serial.write(ch);
-#endif
   }
+#endif
 
   readSensor();
   delay(BNO055_SAMPLERATE_DELAY_MS);
